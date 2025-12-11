@@ -13,6 +13,7 @@ from app.database import get_db
 from app.services.template_service import TemplateService
 from app.schemas.schemas import (
     TemplateCreate,
+    TemplateUpdate,
     TemplateResponse,
     TemplateListResponse,
     GenerateRequest,
@@ -132,6 +133,61 @@ def delete_template(
         raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
 
 
+@router.patch("/{template_id}", response_model=TemplateResponse)
+def update_template(
+    template_id: str,
+    request: TemplateUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update a template and its placeholders.
+
+    You can:
+    - Update template name and description
+    - Update existing placeholders (by ID)
+    - Add new placeholders
+    - Remove placeholders (by ID)
+
+    Example request:
+    ```json
+    {
+        "name": "Updated Template Name",
+        "description": "New description",
+        "placeholders": [
+            {
+                "id": "existing-placeholder-id",
+                "label": "new_label",
+                "style": {
+                    "font_size": 12,
+                    "color": "#FF0000",
+                    "background_color": "#FFFFFF"
+                }
+            }
+        ],
+        "add_placeholders": [
+            {
+                "label": "new_field",
+                "page": 0,
+                "rect": [100, 200, 300, 250],
+                "content_type": "text"
+            }
+        ],
+        "remove_placeholder_ids": ["placeholder-id-to-remove"]
+    }
+    ```
+    """
+    logger.info(f"Updating template: {template_id}")
+    try:
+        result = TemplateService.update_template(template_id, request, db)
+        logger.info(f"Template updated successfully: {template_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating template: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
+
+
 @router.post("/{template_id}/generate")
 def generate_document(
     template_id: str,
@@ -142,19 +198,69 @@ def generate_document(
     Generate a document by applying replacements to a template.
 
     Provide a map of placeholder labels to replacement values.
-    All placeholders must have a replacement value.
+    Each replacement can be a simple string OR a ReplacementValue object with styling.
 
-    Example request:
+    **Simple format** (just text):
     ```json
     {
         "replacements": {
             "customer_name": "Jane Smith",
-            "invoice_date": "2025-01-15",
-            "total_amount": "$1,234.56"
+            "invoice_date": "2025-01-15"
+        },
+        "output_filename": "invoice.pdf"
+    }
+    ```
+
+    **Advanced format** (with styling per field):
+    ```json
+    {
+        "replacements": {
+            "customer_name": {
+                "value": "Jane Smith",
+                "content_type": "text",
+                "style": {
+                    "font_size": 12,
+                    "font_name": "helv",
+                    "font_weight": "bold",
+                    "color": "#000000",
+                    "background_color": "#FFFFFF",
+                    "background_opacity": 1.0,
+                    "background_width": null,
+                    "background_height": null
+                }
+            },
+            "coi_holder": {
+                "value": "Line 1\\nLine 2\\nLine 3",
+                "content_type": "text",
+                "style": {
+                    "font_size": 10,
+                    "color": "#333333",
+                    "background_color": "#FFFFCC"
+                }
+            },
+            "signature": {
+                "value": "data:image/png;base64,iVBORw0KGgo...",
+                "content_type": "image",
+                "style": {
+                    "background_color": "#FFFFFF"
+                }
+            }
         },
         "output_filename": "invoice_jane_smith.pdf"
     }
     ```
+
+    **Style options:**
+    - `font_size`: Font size in points (null = auto from detected text)
+    - `font_name`: "helv" (Helvetica), "times-roman", or "courier"
+    - `font_weight`: "normal" or "bold"
+    - `color`: Text color as hex (e.g., "#000000")
+    - `background_color`: Whitelabel/background color as hex (default "#FFFFFF")
+    - `background_opacity`: 0.0 to 1.0
+    - `background_width`: Custom width in points (null = auto fit to box)
+    - `background_height`: Custom height in points (null = auto fit to box)
+
+    **Multi-line text:** Use \\n in the value string for multiple lines within a single placeholder box.
 
     Returns the generated PDF file as a download.
     """

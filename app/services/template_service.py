@@ -3,10 +3,12 @@ Template Service - Handles template CRUD and document generation.
 """
 import fitz  # PyMuPDF
 import os
+import io
+import base64
 import uuid
 import logging
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
@@ -20,11 +22,25 @@ from app.schemas.schemas import (
     GenerateRequest,
     GenerateResponse,
     ApplyTemplateRequest,
-    ApplyTemplateResponse
+    ApplyTemplateResponse,
+    PlaceholderStyle,
+    ReplacementValue,
+    ContentType
 )
 from app.utils.text_detection import measure_text_width, TextDetector
 
 logger = logging.getLogger("pdf_editor.services.template")
+
+
+def hex_to_rgb(hex_color: str) -> tuple:
+    """Convert hex color string to RGB tuple (0-1 range)."""
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) == 3:
+        hex_color = ''.join([c*2 for c in hex_color])
+    r = int(hex_color[0:2], 16) / 255.0
+    g = int(hex_color[2:4], 16) / 255.0
+    b = int(hex_color[4:6], 16) / 255.0
+    return (r, g, b)
 
 
 class TemplateService:
@@ -63,6 +79,11 @@ class TemplateService:
 
         # Create placeholders
         for p in request.placeholders:
+            # Determine if multi-line based on detected text
+            is_multi_line = p.multi_line
+            if not is_multi_line and p.detected_text:
+                is_multi_line = '\n' in p.detected_text
+
             placeholder = Placeholder(
                 id=str(uuid.uuid4()),
                 template_id=template.id,
@@ -75,7 +96,10 @@ class TemplateService:
                 detected_text=p.detected_text,
                 detection_source=p.detection_source,
                 lines_data=[ld.model_dump() for ld in p.lines_data] if p.lines_data else None,
-                strict_match=1 if p.strict_match else 0
+                strict_match=1 if p.strict_match else 0,
+                content_type=p.content_type.value if p.content_type else "text",
+                multi_line=1 if is_multi_line else 0,
+                style=p.style.model_dump() if p.style else None
             )
             db.add(placeholder)
 
@@ -122,6 +146,110 @@ class TemplateService:
         db.delete(template)
         db.commit()
         return True
+
+    @staticmethod
+    def update_template(template_id: str, request, db: Session):
+        """
+        Update a template and its placeholders.
+
+        Args:
+            template_id: Template ID
+            request: TemplateUpdate request
+            db: Database session
+
+        Returns:
+            Updated TemplateResponse
+        """
+        from app.schemas.schemas import TemplateUpdate
+
+        logger.info(f"Updating template: {template_id}")
+
+        template = db.query(Template).filter(Template.id == template_id).first()
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # Update template fields
+        if request.name is not None:
+            template.name = request.name
+        if request.description is not None:
+            template.description = request.description
+
+        # Remove placeholders
+        if request.remove_placeholder_ids:
+            for ph_id in request.remove_placeholder_ids:
+                placeholder = db.query(Placeholder).filter(
+                    Placeholder.id == ph_id,
+                    Placeholder.template_id == template_id
+                ).first()
+                if placeholder:
+                    db.delete(placeholder)
+                    logger.debug(f"Removed placeholder: {ph_id}")
+
+        # Update existing placeholders
+        if request.placeholders:
+            for p_update in request.placeholders:
+                placeholder = db.query(Placeholder).filter(
+                    Placeholder.id == p_update.id,
+                    Placeholder.template_id == template_id
+                ).first()
+                if not placeholder:
+                    logger.warning(f"Placeholder not found for update: {p_update.id}")
+                    continue
+
+                if p_update.label is not None:
+                    placeholder.label = p_update.label
+                if p_update.rect is not None:
+                    placeholder.x0 = p_update.rect[0]
+                    placeholder.y0 = p_update.rect[1]
+                    placeholder.x1 = p_update.rect[2]
+                    placeholder.y1 = p_update.rect[3]
+                if p_update.detected_text is not None:
+                    placeholder.detected_text = p_update.detected_text
+                if p_update.lines_data is not None:
+                    placeholder.lines_data = [ld.model_dump() for ld in p_update.lines_data]
+                if p_update.strict_match is not None:
+                    placeholder.strict_match = 1 if p_update.strict_match else 0
+                if p_update.content_type is not None:
+                    placeholder.content_type = p_update.content_type.value
+                if p_update.style is not None:
+                    placeholder.style = p_update.style.model_dump()
+                if p_update.multi_line is not None:
+                    placeholder.multi_line = 1 if p_update.multi_line else 0
+
+                logger.debug(f"Updated placeholder: {p_update.id}")
+
+        # Add new placeholders
+        if request.add_placeholders:
+            for p in request.add_placeholders:
+                is_multi_line = p.multi_line
+                if not is_multi_line and p.detected_text:
+                    is_multi_line = '\n' in p.detected_text
+
+                placeholder = Placeholder(
+                    id=str(uuid.uuid4()),
+                    template_id=template.id,
+                    label=p.label,
+                    page=p.page,
+                    x0=p.rect[0],
+                    y0=p.rect[1],
+                    x1=p.rect[2],
+                    y1=p.rect[3],
+                    detected_text=p.detected_text,
+                    detection_source=p.detection_source,
+                    lines_data=[ld.model_dump() for ld in p.lines_data] if p.lines_data else None,
+                    strict_match=1 if p.strict_match else 0,
+                    content_type=p.content_type.value if p.content_type else "text",
+                    multi_line=1 if is_multi_line else 0,
+                    style=p.style.model_dump() if p.style else None
+                )
+                db.add(placeholder)
+                logger.debug(f"Added placeholder: {p.label}")
+
+        db.commit()
+        db.refresh(template)
+
+        pdf_filename = template.pdf_document.original_filename if template.pdf_document else None
+        return TemplateService._template_to_response(template, pdf_filename)
 
     @staticmethod
     def generate_document(
@@ -185,9 +313,29 @@ class TemplateService:
 
             # Apply each placeholder replacement
             for placeholder in template.placeholders:
-                new_text = request.replacements.get(placeholder.label, "")
-                if not new_text:
+                replacement = request.replacements.get(placeholder.label)
+                if not replacement:
                     logger.debug(f"Skipping placeholder {placeholder.label}: empty replacement")
+                    continue
+
+                # Handle both string and ReplacementValue formats
+                if isinstance(replacement, str):
+                    replacement_value = replacement
+                    replacement_content_type = ContentType.TEXT
+                    replacement_style = None
+                elif isinstance(replacement, dict):
+                    # Already a dict (from JSON)
+                    replacement_value = replacement.get('value', '')
+                    replacement_content_type = ContentType(replacement.get('content_type', 'text'))
+                    replacement_style = replacement.get('style')
+                else:
+                    # ReplacementValue object
+                    replacement_value = replacement.value
+                    replacement_content_type = replacement.content_type
+                    replacement_style = replacement.style.model_dump() if replacement.style else None
+
+                if not replacement_value:
+                    logger.debug(f"Skipping placeholder {placeholder.label}: empty value")
                     continue
 
                 logger.debug(f"Replacing placeholder '{placeholder.label}' on page {placeholder.page}")
@@ -203,6 +351,31 @@ class TemplateService:
                     rect.y1 + 2
                 )
 
+                # Merge styles: replacement style overrides placeholder default style
+                effective_style = placeholder.style.copy() if placeholder.style else {}
+                if replacement_style:
+                    effective_style.update(replacement_style)
+
+                # Get background color for redaction (default white)
+                bg_color_hex = effective_style.get('background_color', '#FFFFFF')
+                bg_rgb = hex_to_rgb(bg_color_hex)
+                bg_opacity = effective_style.get('background_opacity', 1.0)
+
+                # Calculate background rect size (can be custom or auto)
+                bg_width = effective_style.get('background_width')
+                bg_height = effective_style.get('background_height')
+                if bg_width and bg_height:
+                    # Custom background size
+                    bg_rect = fitz.Rect(
+                        rect.x0,
+                        rect.y0,
+                        rect.x0 + bg_width,
+                        rect.y0 + bg_height
+                    )
+                else:
+                    # Auto size - use clean_rect
+                    bg_rect = clean_rect
+
                 # Delete any widgets in the area
                 widgets_to_delete = []
                 for widget in page.widgets():
@@ -216,24 +389,44 @@ class TemplateService:
                     except Exception as e:
                         logger.warning(f"Failed to delete widget: {e}")
 
-                # Use redaction for thorough cleaning (matches GUI behavior)
+                # Use redaction for thorough cleaning with custom background color
                 try:
-                    page.add_redact_annot(clean_rect, fill=(1, 1, 1), text="")
+                    page.add_redact_annot(clean_rect, fill=bg_rgb, text="")
                     page.apply_redactions()
-                    logger.debug(f"Applied redaction to clean area: {clean_rect}")
+                    logger.debug(f"Applied redaction with color {bg_color_hex} to area: {clean_rect}")
                 except Exception as e:
                     logger.warning(f"Redaction failed, using draw_rect fallback: {e}")
-                    # Fallback: Draw white rectangle to cover existing content
-                    page.draw_rect(clean_rect, color=(1, 1, 1), fill=(1, 1, 1), width=0)
+                    # Fallback: Draw rectangle with custom color
+                    page.draw_rect(clean_rect, color=bg_rgb, fill=bg_rgb, width=0)
 
-                # Insert new text
-                TemplateService._insert_text(
-                    page=page,
-                    rect=rect,
-                    new_text=new_text,
-                    lines_data=placeholder.lines_data,
-                    strict_match=bool(placeholder.strict_match)
-                )
+                # If custom background size, draw additional background rect
+                if bg_width or bg_height:
+                    try:
+                        shape = page.new_shape()
+                        shape.draw_rect(bg_rect)
+                        shape.finish(fill=bg_rgb, fill_opacity=bg_opacity, color=None)
+                        shape.commit()
+                        logger.debug(f"Drew custom background: {bg_rect}")
+                    except Exception as e:
+                        logger.warning(f"Custom background failed: {e}")
+
+                # Insert content based on type
+                if replacement_content_type == ContentType.IMAGE:
+                    TemplateService._insert_image(
+                        page=page,
+                        rect=rect,
+                        image_data=replacement_value,
+                        style=effective_style
+                    )
+                else:
+                    TemplateService._insert_text(
+                        page=page,
+                        rect=rect,
+                        new_text=replacement_value,
+                        lines_data=placeholder.lines_data,
+                        strict_match=bool(placeholder.strict_match),
+                        style=effective_style
+                    )
 
                 placeholders_replaced += 1
 
@@ -259,7 +452,8 @@ class TemplateService:
         rect: fitz.Rect,
         new_text: str,
         lines_data: Optional[List[Dict]],
-        strict_match: bool
+        strict_match: bool,
+        style: Optional[Dict] = None
     ):
         """
         Insert text into a page area, matching original layout if possible.
@@ -270,13 +464,34 @@ class TemplateService:
             new_text: Text to insert
             lines_data: Original line layout data
             strict_match: If True, match original line positions
+            style: Optional styling options
         """
         new_lines = new_text.split('\n')
         lines_data = lines_data or []
         box_width = rect.x1 - rect.x0
         box_height = rect.y1 - rect.y0
 
+        # Extract styling options with defaults
+        style = style or {}
+        style_fontsize = style.get('font_size')  # None means auto-calculate
+        style_fontname = style.get('font_name', 'helv')
+        style_fontweight = style.get('font_weight', 'normal')
+        style_color = hex_to_rgb(style.get('color', '#000000'))
+        style_padding = style.get('padding', 1.0)
+
+        # Map font name for bold variant
+        fontname = style_fontname
+        if style_fontweight == 'bold':
+            font_mapping = {
+                'helv': 'hebo',  # Helvetica Bold
+                'times-roman': 'tibo',  # Times Bold
+                'courier': 'cobo',  # Courier Bold
+            }
+            fontname = font_mapping.get(style_fontname, style_fontname)
+
         logger.debug(f"Inserting text: '{new_text[:30]}...' into rect {rect}, {len(new_lines)} lines")
+
+        # Note: Background is drawn in generate_document before this is called
 
         for i, line_text in enumerate(new_lines):
             line_text = line_text.strip()
@@ -284,22 +499,29 @@ class TemplateService:
                 continue
 
             # Calculate Y position and font size
-            fontsize = 10  # default
+            fontsize = style_fontsize or 10  # default
             baseline_y = rect.y0 + 12  # default
 
             if strict_match and i < len(lines_data) and lines_data[i]:
-                # Use original baseline
-                baseline_y = lines_data[i].get('baseline', rect.y0 + 12)
-                fontsize = lines_data[i].get('size', 10)
+                # Use original baseline and y0/y1 positions
+                line_data = lines_data[i]
+                baseline_y = line_data.get('baseline', rect.y0 + 12)
+
+                # If style doesn't override font size, use detected size
+                if not style_fontsize:
+                    fontsize = line_data.get('size', 10)
+
                 logger.debug(f"Line {i}: using original baseline={baseline_y}, size={fontsize}")
             else:
                 # Calculate position for extra/all lines
                 if lines_data and len(lines_data) > 0:
-                    # Deduce line height from existing lines
+                    # Deduce line height from existing lines using y0/y1 if available
                     if len(lines_data) > 1:
-                        first_baseline = lines_data[0].get('baseline', rect.y0)
-                        last_baseline = lines_data[-1].get('baseline', rect.y1)
-                        avg_height = (last_baseline - first_baseline) / (len(lines_data) - 1)
+                        # Try to use y0/y1 for more accurate spacing
+                        first_y0 = lines_data[0].get('y0', lines_data[0].get('baseline', rect.y0) - 10)
+                        last_y1 = lines_data[-1].get('y1', lines_data[-1].get('baseline', rect.y1))
+                        total_height = last_y1 - first_y0
+                        avg_height = total_height / len(lines_data)
                     else:
                         avg_height = lines_data[0].get('size', 12) * 1.2
 
@@ -312,22 +534,25 @@ class TemplateService:
                         last_baseline = lines_data[-1].get('baseline', rect.y0)
                         baseline_y = last_baseline + (avg_height * (i - len(lines_data) + 1))
 
-                    fontsize = lines_data[0].get('size', 10)
+                    if not style_fontsize:
+                        fontsize = lines_data[0].get('size', 10)
                 else:
                     # No line data - distribute evenly
                     num_lines = max(len(new_lines), 1)
                     h = box_height / num_lines
                     baseline_y = rect.y0 + ((i + 0.8) * h)
-                    fontsize = min(h * 0.75, 12)  # Cap at 12pt
+                    if not style_fontsize:
+                        fontsize = min(h * 0.75, 12)  # Cap at 12pt
 
-            # Ensure fontsize is reasonable
-            fontsize = max(6, min(fontsize, 14))
+            # Ensure fontsize is reasonable (allow up to 72pt if style specifies)
+            max_font = style_fontsize if style_fontsize and style_fontsize > 14 else 72
+            fontsize = max(4, min(fontsize, max_font))
 
             # Auto-fit text width by reducing font size if needed
             original_fontsize = fontsize
             while fontsize > 4:
-                text_len = measure_text_width(line_text, "helv", fontsize)
-                if text_len < (box_width - 4):
+                text_len = measure_text_width(line_text, fontname, fontsize)
+                if text_len < (box_width - style_padding * 2):
                     break
                 fontsize -= 0.5
 
@@ -336,16 +561,60 @@ class TemplateService:
 
             # Insert the text
             try:
+                # Note: PyMuPDF doesn't directly support text opacity, but we can use overlay
                 page.insert_text(
-                    (rect.x0 + 1, baseline_y),
+                    (rect.x0 + style_padding, baseline_y),
                     line_text,
-                    fontname="helv",
+                    fontname=fontname,
                     fontsize=fontsize,
-                    color=(0, 0, 0)
+                    color=style_color,
+                    overlay=True
                 )
-                logger.debug(f"Line {i}: inserted '{line_text[:20]}...' at ({rect.x0 + 1}, {baseline_y})")
+                logger.debug(f"Line {i}: inserted '{line_text[:20]}...' at ({rect.x0 + style_padding}, {baseline_y})")
             except Exception as e:
                 logger.error(f"Failed to insert text line {i}: {e}")
+
+    @staticmethod
+    def _insert_image(
+        page: fitz.Page,
+        rect: fitz.Rect,
+        image_data: str,
+        style: Optional[Dict] = None
+    ):
+        """
+        Insert an image into a page area.
+
+        Args:
+            page: PyMuPDF page object
+            rect: Rectangle area for image
+            image_data: Base64 encoded image data
+            style: Optional styling options (for background)
+        """
+        style = style or {}
+        style_bg_color = style.get('background_color')
+        style_bg_opacity = style.get('background_opacity', 1.0)
+
+        logger.debug(f"Inserting image into rect {rect}")
+
+        try:
+            # Draw background if specified
+            if style_bg_color and style_bg_opacity > 0:
+                bg_rgb = hex_to_rgb(style_bg_color)
+                page.draw_rect(rect, color=bg_rgb, fill=bg_rgb, width=0)
+
+            # Decode base64 image
+            # Remove data URL prefix if present
+            if ',' in image_data:
+                image_data = image_data.split(',')[1]
+
+            image_bytes = base64.b64decode(image_data)
+
+            # Insert image into the rectangle
+            page.insert_image(rect, stream=image_bytes, keep_proportion=True)
+            logger.debug(f"Image inserted successfully into {rect}")
+
+        except Exception as e:
+            logger.error(f"Failed to insert image: {e}")
 
     @staticmethod
     def _template_to_response(template: Template, pdf_filename: Optional[str]) -> TemplateResponse:
@@ -361,6 +630,9 @@ class TemplateService:
                 detection_source=p.detection_source,
                 lines_data=p.lines_data,
                 strict_match=bool(p.strict_match),
+                content_type=ContentType(p.content_type) if p.content_type else ContentType.TEXT,
+                style=p.style,
+                multi_line=bool(p.multi_line),
                 created_at=p.created_at
             ))
 
@@ -472,6 +744,13 @@ class TemplateService:
                     rect.y1 + 2
                 )
 
+                # Get style from placeholder (if any)
+                effective_style = placeholder.style.copy() if placeholder.style else {}
+
+                # Get background color for redaction (default white)
+                bg_color_hex = effective_style.get('background_color', '#FFFFFF')
+                bg_rgb = hex_to_rgb(bg_color_hex)
+
                 # Delete any widgets in the area
                 widgets_to_delete = []
                 for widget in page.widgets():
@@ -485,14 +764,14 @@ class TemplateService:
                     except Exception as e:
                         logger.warning(f"Failed to delete widget: {e}")
 
-                # Use redaction for thorough cleaning
+                # Use redaction for thorough cleaning with background color
                 try:
-                    page.add_redact_annot(clean_rect, fill=(1, 1, 1), text="")
+                    page.add_redact_annot(clean_rect, fill=bg_rgb, text="")
                     page.apply_redactions()
-                    logger.debug(f"Applied redaction to clean area: {clean_rect}")
+                    logger.debug(f"Applied redaction with color {bg_color_hex} to area: {clean_rect}")
                 except Exception as e:
                     logger.warning(f"Redaction failed, using draw_rect fallback: {e}")
-                    page.draw_rect(clean_rect, color=(1, 1, 1), fill=(1, 1, 1), width=0)
+                    page.draw_rect(clean_rect, color=bg_rgb, fill=bg_rgb, width=0)
 
                 # Insert new text using the template's lines_data for positioning
                 TemplateService._insert_text(
@@ -500,7 +779,8 @@ class TemplateService:
                     rect=rect,
                     new_text=new_text,
                     lines_data=placeholder.lines_data,
-                    strict_match=bool(placeholder.strict_match)
+                    strict_match=bool(placeholder.strict_match),
+                    style=effective_style
                 )
 
                 placeholders_replaced += 1

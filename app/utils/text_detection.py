@@ -141,15 +141,23 @@ class TextDetector:
                         logger.debug(f"[TextDict] Block {i}, Line {j}: '{line_text[:50]}...' ({len(spans)} spans)")
 
                         if line_text.strip():
-                            # Capture baseline and font info from first span
+                            # Get line bounding box
+                            line_bbox = line.get("bbox", [0, 0, 0, 0])
+
+                            # Capture baseline, y0, y1, and font info from first span
+                            first_span = line["spans"][0] if spans else {}
                             all_lines.append({
                                 'text': line_text.strip(),
-                                'baseline': line["spans"][0]["origin"][1],
-                                'size': line["spans"][0]["size"]
+                                'baseline': first_span.get("origin", [0, line_bbox[3]])[1],
+                                'y0': line_bbox[1],  # Top of line
+                                'y1': line_bbox[3],  # Bottom of line
+                                'size': first_span.get("size", 10),
+                                'font': first_span.get("font", "helv"),
+                                'color': first_span.get("color", 0)  # Color as integer
                             })
 
         # Sort by Y position (top to bottom)
-        all_lines.sort(key=lambda x: x['baseline'])
+        all_lines.sort(key=lambda x: x['y0'] if x.get('y0') is not None else x['baseline'])
 
         logger.info(f"[TextDict] Extracted {len(all_lines)} lines")
 
@@ -177,30 +185,38 @@ class TextDetector:
         for i, w in enumerate(words[:5]):
             logger.debug(f"[WordCluster] Word {i}: '{w[4]}' at ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f}, {w[3]:.1f})")
 
-        # Group words by approximate Y position
+        # Group words by approximate Y position (using center Y for better clustering)
         lines: Dict[float, List] = {}
         for w in words:
-            y_pos = round(w[3], 0)  # Bottom Y of word
+            y_center = (w[1] + w[3]) / 2  # Center Y of word
             found = False
-            for existing_y in lines.keys():
-                if abs(existing_y - y_pos) < 5:  # Tolerance
+            for existing_y in list(lines.keys()):
+                if abs(existing_y - y_center) < 5:  # Tolerance
                     lines[existing_y].append(w)
                     found = True
                     break
             if not found:
-                lines[y_pos] = [w]
+                lines[y_center] = [w]
 
         # Sort lines by Y and words by X
         sorted_y = sorted(lines.keys())
         lines_data = []
 
-        for y in sorted_y:
-            words_in_line = sorted(lines[y], key=lambda x: x[0])
+        for y_center in sorted_y:
+            words_in_line = sorted(lines[y_center], key=lambda x: x[0])
             text = " ".join([w[4] for w in words_in_line])
+
+            # Calculate y0 and y1 from all words in the line
+            y0 = min(w[1] for w in words_in_line)
+            y1 = max(w[3] for w in words_in_line)
+            avg_height = y1 - y0
+
             lines_data.append({
                 'text': text,
-                'baseline': y - 1,
-                'size': 10  # Default estimate
+                'baseline': y1 - (avg_height * 0.2),  # Estimate baseline at 80% down
+                'y0': y0,
+                'y1': y1,
+                'size': avg_height * 0.8  # Estimate font size from line height
             })
 
         detected_text = "\n".join([l['text'] for l in lines_data])

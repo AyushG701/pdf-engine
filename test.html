@@ -334,23 +334,100 @@
 
     <!-- Detection Result Modal -->
     <div class="modal" id="detectionModal">
-        <div class="modal-content">
+        <div class="modal-content" style="width: 600px;">
             <span class="modal-close" onclick="closeModal('detectionModal')">&times;</span>
-            <h3>Text Detected</h3>
+            <h3>Configure Placeholder</h3>
+
             <div class="form-group">
                 <label>Detection Method:</label>
                 <input type="text" id="detectionSource" readonly>
             </div>
+
             <div class="form-group">
                 <label>Detected Text:</label>
-                <textarea id="detectedText" rows="4" readonly></textarea>
+                <textarea id="detectedText" rows="3" readonly></textarea>
             </div>
+
             <div class="form-group">
                 <label>Placeholder Label (required):</label>
                 <input type="text" id="modalPlaceholderLabel" placeholder="e.g., customer_name, invoice_date">
             </div>
-            <button class="btn-success" onclick="confirmPlaceholder()">Add Placeholder</button>
-            <button class="btn-secondary" onclick="closeModal('detectionModal')">Cancel</button>
+
+            <div class="form-group">
+                <label>Content Type:</label>
+                <select id="modalContentType">
+                    <option value="text">Text</option>
+                    <option value="image">Image (for signatures, logos)</option>
+                </select>
+            </div>
+
+            <!-- Styling Options Section -->
+            <div class="section-header" onclick="toggleStyleSection()" style="cursor: pointer; margin: 15px -25px; padding: 8px 15px; background: #0f3460;">
+                <span>Styling Options (optional)</span>
+                <span class="toggle" id="styleToggle">&#9660;</span>
+            </div>
+
+            <div id="styleOptions" style="display: none;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>Font Size (auto if empty):</label>
+                        <input type="number" id="modalFontSize" placeholder="Auto" min="4" max="72" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>Font:</label>
+                        <select id="modalFontName">
+                            <option value="helv">Helvetica</option>
+                            <option value="times-roman">Times Roman</option>
+                            <option value="courier">Courier</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Font Weight:</label>
+                        <select id="modalFontWeight">
+                            <option value="normal">Normal</option>
+                            <option value="bold">Bold</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Text Color:</label>
+                        <input type="color" id="modalTextColor" value="#000000">
+                    </div>
+                    <div class="form-group">
+                        <label>Text Opacity:</label>
+                        <input type="range" id="modalTextOpacity" min="0" max="1" step="0.1" value="1">
+                        <span id="textOpacityValue">100%</span>
+                    </div>
+                    <div class="form-group">
+                        <label>Background Color:</label>
+                        <input type="color" id="modalBgColor" value="#FFFFFF">
+                    </div>
+                    <div class="form-group">
+                        <label>Background Opacity:</label>
+                        <input type="range" id="modalBgOpacity" min="0" max="1" step="0.1" value="1">
+                        <span id="bgOpacityValue">100%</span>
+                    </div>
+                    <div class="form-group">
+                        <label>Padding (pts):</label>
+                        <input type="number" id="modalPadding" value="1" min="0" max="20" step="0.5">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                    <div class="form-group">
+                        <label>Background Width (auto if empty):</label>
+                        <input type="number" id="modalBgWidth" placeholder="Auto" min="0" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Background Height (auto if empty):</label>
+                        <input type="number" id="modalBgHeight" placeholder="Auto" min="0" step="1">
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 15px;">
+                <button class="btn-success" onclick="confirmPlaceholder()">Add Placeholder</button>
+                <button class="btn-secondary" onclick="closeModal('detectionModal')">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -400,6 +477,71 @@
                     log(`Detection mode: ${mode}`, 'info');
                 });
             }
+
+            // Setup opacity sliders
+            const textOpacitySlider = document.getElementById('modalTextOpacity');
+            const bgOpacitySlider = document.getElementById('modalBgOpacity');
+
+            if (textOpacitySlider) {
+                textOpacitySlider.addEventListener('input', function() {
+                    document.getElementById('textOpacityValue').textContent = Math.round(this.value * 100) + '%';
+                });
+            }
+
+            if (bgOpacitySlider) {
+                bgOpacitySlider.addEventListener('input', function() {
+                    document.getElementById('bgOpacityValue').textContent = Math.round(this.value * 100) + '%';
+                });
+            }
+        }
+
+        function toggleStyleSection() {
+            const styleOptions = document.getElementById('styleOptions');
+            const toggle = document.getElementById('styleToggle');
+            if (styleOptions.style.display === 'none') {
+                styleOptions.style.display = 'block';
+                toggle.style.transform = 'rotate(0deg)';
+            } else {
+                styleOptions.style.display = 'none';
+                toggle.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        function resetStyleOptions() {
+            document.getElementById('modalFontSize').value = '';
+            document.getElementById('modalFontName').value = 'helv';
+            document.getElementById('modalFontWeight').value = 'normal';
+            document.getElementById('modalTextColor').value = '#000000';
+            document.getElementById('modalTextOpacity').value = '1';
+            document.getElementById('textOpacityValue').textContent = '100%';
+            document.getElementById('modalBgColor').value = '#FFFFFF';
+            document.getElementById('modalBgOpacity').value = '1';
+            document.getElementById('bgOpacityValue').textContent = '100%';
+            document.getElementById('modalPadding').value = '1';
+            document.getElementById('modalBgWidth').value = '';
+            document.getElementById('modalBgHeight').value = '';
+            document.getElementById('modalContentType').value = 'text';
+            document.getElementById('styleOptions').style.display = 'none';
+            document.getElementById('styleToggle').style.transform = 'rotate(-90deg)';
+        }
+
+        function getStyleFromModal() {
+            const fontSize = document.getElementById('modalFontSize').value;
+            const bgWidth = document.getElementById('modalBgWidth').value;
+            const bgHeight = document.getElementById('modalBgHeight').value;
+
+            return {
+                font_size: fontSize ? parseFloat(fontSize) : null,
+                font_name: document.getElementById('modalFontName').value,
+                font_weight: document.getElementById('modalFontWeight').value,
+                color: document.getElementById('modalTextColor').value,
+                opacity: parseFloat(document.getElementById('modalTextOpacity').value),
+                background_color: document.getElementById('modalBgColor').value,
+                background_opacity: parseFloat(document.getElementById('modalBgOpacity').value),
+                background_width: bgWidth ? parseFloat(bgWidth) : null,
+                background_height: bgHeight ? parseFloat(bgHeight) : null,
+                padding: parseFloat(document.getElementById('modalPadding').value) || 1
+            };
         }
 
         function setupCanvas() {
@@ -917,18 +1059,27 @@ Check browser console for full details (press F12).`);
                 return;
             }
 
+            const contentType = document.getElementById('modalContentType').value;
+            const style = getStyleFromModal();
+            const detectedText = detectionResult.detected_text || '';
+            const isMultiLine = detectedText.includes('\n');
+
             placeholders.push({
                 label: label,
                 page: currentPage,
                 rect: [currentSelection.x0, currentSelection.y0, currentSelection.x1, currentSelection.y1],
-                detected_text: detectionResult.detected_text,
+                detected_text: detectedText,
                 detection_source: detectionResult.detection_source,
-                lines_data: detectionResult.lines_data
+                lines_data: detectionResult.lines_data,
+                content_type: contentType,
+                multi_line: isMultiLine,
+                style: style
             });
 
-            log(`Added placeholder: ${label}`, 'success');
+            log(`Added placeholder: ${label} (${contentType}${isMultiLine ? ', multi-line' : ''})`, 'success');
             closeModal('detectionModal');
             clearSelectionBox();
+            resetStyleOptions();
             renderPlaceholders();
             drawPlaceholderMarkers();
             updateReplacementFields();
@@ -940,15 +1091,22 @@ Check browser console for full details (press F12).`);
                 container.innerHTML = '<div style="color: #888; font-size: 0.85em;">No placeholders defined</div>';
                 return;
             }
-            container.innerHTML = placeholders.map((p, i) => `
-                <div class="list-item placeholder-item" style="${p.pending_detection ? 'border-left-color: #fdcb6e;' : ''}">
-                    <div>
-                        <div class="item-title">${p.label} ${p.pending_detection ? '<span style="color: #fdcb6e; font-size: 0.7em;">(pending)</span>' : ''}</div>
-                        <div class="item-meta">Page ${p.page + 1} | ${p.detected_text ? '"' + p.detected_text.substring(0, 25) + '..."' : '(not detected yet)'}</div>
+            container.innerHTML = placeholders.map((p, i) => {
+                const typeIcon = p.content_type === 'image' ? '🖼️' : (p.multi_line ? '📝' : '');
+                const typeBadge = p.content_type === 'image' ? '<span style="color: #74b9ff; font-size: 0.7em;">[IMG]</span>' :
+                                  (p.multi_line ? '<span style="color: #a29bfe; font-size: 0.7em;">[MULTI]</span>' : '');
+                const pendingBadge = p.pending_detection ? '<span style="color: #fdcb6e; font-size: 0.7em;">(pending)</span>' : '';
+
+                return `
+                    <div class="list-item placeholder-item" style="${p.pending_detection ? 'border-left-color: #fdcb6e;' : ''}">
+                        <div>
+                            <div class="item-title">${p.label} ${typeBadge} ${pendingBadge}</div>
+                            <div class="item-meta">Page ${p.page + 1} | ${p.detected_text ? '"' + p.detected_text.substring(0, 25) + '..."' : '(not detected yet)'}</div>
+                        </div>
+                        <span class="delete-btn" onclick="removePlaceholder(${i})">&times;</span>
                     </div>
-                    <span class="delete-btn" onclick="removePlaceholder(${i})">&times;</span>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function removePlaceholder(index) {
@@ -1133,13 +1291,102 @@ Check browser console for full details (press F12).`);
         }
 
         function updateReplacementFields() {
+            // Use template placeholders if template is loaded, otherwise use local placeholders
+            const fieldsSource = (currentTemplate && currentTemplate.placeholders) ? currentTemplate.placeholders : placeholders;
+
             const container = document.getElementById('replacementFields');
-            container.innerHTML = placeholders.map(p => `
-                <div class="form-group">
-                    <label>${p.label}:</label>
-                    <input type="text" id="replace_${p.label}" placeholder="${p.detected_text || 'Enter value'}">
-                </div>
-            `).join('');
+            if (!fieldsSource || fieldsSource.length === 0) {
+                container.innerHTML = '<div style="color: #888; font-size: 0.85em;">No placeholders defined. Create or select a template first.</div>';
+                return;
+            }
+
+            container.innerHTML = fieldsSource.map(p => {
+                const isImage = p.content_type === 'image';
+                const detectedText = (p.detected_text || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                const defaultValue = p.detected_text || '';
+
+                if (isImage) {
+                    return `
+                        <div class="form-group replacement-field" data-label="${p.label}" data-content-type="image" style="border-left: 3px solid #74b9ff; padding-left: 10px; margin-bottom: 15px;">
+                            <label><strong>${p.label}</strong> <span style="color: #74b9ff; font-size: 0.8em;">[IMAGE]</span></label>
+                            <div style="display: flex; gap: 8px; align-items: center; margin-top: 5px;">
+                                <input type="file" id="replace_file_${p.label}" accept="image/*" onchange="handleImageSelect('${p.label}', this)" style="flex: 1;">
+                                <img id="preview_${p.label}" src="" alt="" style="max-height: 50px; display: none; border: 1px solid #666; border-radius: 4px;">
+                            </div>
+                            <input type="hidden" id="replace_${p.label}" value="">
+                            <button type="button" class="btn-small btn-secondary" onclick="toggleStyleOverride('${p.label}')" style="margin-top: 8px;">⚙️ Background Settings</button>
+                            <div id="styleOverride_${p.label}" style="display: none; margin-top: 8px; padding: 10px; background: #1a1a2e; border-radius: 4px; border: 1px solid #0f3460;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <div><label style="font-size: 0.75em; color: #aaa;">Background Color</label><input type="color" id="style_bgColor_${p.label}" value="#FFFFFF" style="width: 100%; height: 30px; padding: 0;"></div>
+                                    <div><label style="font-size: 0.75em; color: #aaa;">BG Opacity</label><input type="range" id="style_bgOpacity_${p.label}" min="0" max="1" step="0.1" value="1" style="width: 100%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // All text fields use textarea for multi-line support
+                    return `
+                        <div class="form-group replacement-field" data-label="${p.label}" data-content-type="text" style="border-left: 3px solid #00b894; padding-left: 10px; margin-bottom: 15px;">
+                            <label><strong>${p.label}</strong> ${p.multi_line ? '<span style="color: #a29bfe; font-size: 0.8em;">[MULTI-LINE]</span>' : ''}</label>
+                            <textarea id="replace_${p.label}" rows="3" placeholder="${detectedText || 'Enter replacement text (use Enter for new lines)'}" style="width: 100%; margin-top: 5px;">${defaultValue}</textarea>
+                            <button type="button" class="btn-small btn-secondary" onclick="toggleStyleOverride('${p.label}')" style="margin-top: 8px;">⚙️ Text & Background Style</button>
+                            <div id="styleOverride_${p.label}" style="display: none; margin-top: 8px; padding: 10px; background: #1a1a2e; border-radius: 4px; border: 1px solid #0f3460;">
+                                <div style="margin-bottom: 8px; font-size: 0.8em; color: #e94560;">Text Styling:</div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px;">
+                                    <div><label style="font-size: 0.7em; color: #aaa;">Font Size</label><input type="number" id="style_fontSize_${p.label}" placeholder="Auto" min="4" max="72" style="width: 100%; padding: 4px;"></div>
+                                    <div><label style="font-size: 0.7em; color: #aaa;">Font</label><select id="style_fontName_${p.label}" style="width: 100%; padding: 4px;"><option value="">Default</option><option value="helv">Helvetica</option><option value="times-roman">Times</option><option value="courier">Courier</option></select></div>
+                                    <div><label style="font-size: 0.7em; color: #aaa;">Weight</label><select id="style_fontWeight_${p.label}" style="width: 100%; padding: 4px;"><option value="normal">Normal</option><option value="bold">Bold</option></select></div>
+                                    <div><label style="font-size: 0.7em; color: #aaa;">Text Color</label><input type="color" id="style_color_${p.label}" value="#000000" style="width: 100%; height: 28px; padding: 0;"></div>
+                                </div>
+                                <div style="margin: 12px 0 8px 0; font-size: 0.8em; color: #e94560;">Background (Whitelabel):</div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px;">
+                                    <div><label style="font-size: 0.7em; color: #aaa;">BG Color</label><input type="color" id="style_bgColor_${p.label}" value="#FFFFFF" style="width: 100%; height: 28px; padding: 0;"></div>
+                                    <div><label style="font-size: 0.7em; color: #aaa;">BG Opacity</label><input type="range" id="style_bgOpacity_${p.label}" min="0" max="1" step="0.1" value="1" style="width: 100%;"><span id="style_bgOpacityVal_${p.label}" style="font-size: 0.7em;">100%</span></div>
+                                    <div><label style="font-size: 0.7em; color: #aaa;">BG Width</label><input type="number" id="style_bgWidth_${p.label}" placeholder="Auto" min="0" style="width: 100%; padding: 4px;"></div>
+                                    <div><label style="font-size: 0.7em; color: #aaa;">BG Height</label><input type="number" id="style_bgHeight_${p.label}" placeholder="Auto" min="0" style="width: 100%; padding: 4px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+
+            // Add event listeners for opacity display
+            fieldsSource.forEach(p => {
+                const opacityInput = document.getElementById(`style_bgOpacity_${p.label}`);
+                const opacityVal = document.getElementById(`style_bgOpacityVal_${p.label}`);
+                if (opacityInput && opacityVal) {
+                    opacityInput.addEventListener('input', () => {
+                        opacityVal.textContent = Math.round(opacityInput.value * 100) + '%';
+                    });
+                }
+            });
+        }
+
+        function toggleStyleOverride(label) {
+            const el = document.getElementById(`styleOverride_${label}`);
+            if (el) {
+                el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function handleImageSelect(label, input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64 = e.target.result;
+                document.getElementById(`replace_${label}`).value = base64;
+
+                const preview = document.getElementById(`preview_${label}`);
+                if (preview) {
+                    preview.src = base64;
+                    preview.style.display = 'block';
+                }
+                log(`Image loaded for ${label}: ${file.name}`, 'info');
+            };
+            reader.readAsDataURL(file);
         }
 
         // =============================================
@@ -1152,21 +1399,83 @@ Check browser console for full details (press F12).`);
             }
 
             const replacements = {};
-            document.querySelectorAll('[id^="replace_"]').forEach(input => {
-                const label = input.id.replace('replace_', '');
-                if (input.value.trim()) {
-                    replacements[label] = input.value.trim();
+
+            // Get placeholders from template or local
+            const fieldsSource = (currentTemplate && currentTemplate.placeholders) ? currentTemplate.placeholders : placeholders;
+
+            console.log('fieldsSource:', fieldsSource);
+            console.log('Found replacement fields:', document.querySelectorAll('.replacement-field').length);
+
+            // Process all replacement fields
+            const fields = document.querySelectorAll('.replacement-field');
+            fields.forEach(field => {
+                const label = field.dataset.label;
+                const contentType = field.dataset.contentType; // 'text' or 'image'
+
+                console.log(`Processing field: ${label}, contentType: ${contentType}`);
+
+                // Find the input/textarea element
+                const input = document.getElementById(`replace_${label}`);
+                if (!input) {
+                    console.log(`  - Input not found for ${label}`);
+                    return;
                 }
+
+                const inputValue = input.value;
+                console.log(`  - Input value length: ${inputValue.length}, trimmed: ${inputValue.trim().length}`);
+
+                // Skip empty values
+                if (!inputValue || inputValue.trim().length === 0) {
+                    console.log(`  - Skipping empty value for ${label}`);
+                    return;
+                }
+
+                const isImage = contentType === 'image';
+
+                // Collect all style values
+                const fontSizeEl = document.getElementById(`style_fontSize_${label}`);
+                const fontNameEl = document.getElementById(`style_fontName_${label}`);
+                const fontWeightEl = document.getElementById(`style_fontWeight_${label}`);
+                const colorEl = document.getElementById(`style_color_${label}`);
+                const bgColorEl = document.getElementById(`style_bgColor_${label}`);
+                const bgOpacityEl = document.getElementById(`style_bgOpacity_${label}`);
+                const bgWidthEl = document.getElementById(`style_bgWidth_${label}`);
+                const bgHeightEl = document.getElementById(`style_bgHeight_${label}`);
+
+                // Build style object with all values
+                const style = {
+                    font_size: fontSizeEl && fontSizeEl.value ? parseFloat(fontSizeEl.value) : null,
+                    font_name: fontNameEl && fontNameEl.value ? fontNameEl.value : 'helv',
+                    font_weight: fontWeightEl ? fontWeightEl.value : 'normal',
+                    color: colorEl ? colorEl.value : '#000000',
+                    background_color: bgColorEl ? bgColorEl.value : '#FFFFFF',
+                    background_opacity: bgOpacityEl ? parseFloat(bgOpacityEl.value) : 1.0,
+                    background_width: bgWidthEl && bgWidthEl.value ? parseFloat(bgWidthEl.value) : null,
+                    background_height: bgHeightEl && bgHeightEl.value ? parseFloat(bgHeightEl.value) : null
+                };
+
+                // Always use structured format so we can pass styling
+                replacements[label] = {
+                    value: inputValue,  // Keep original value including newlines
+                    content_type: isImage ? 'image' : 'text',
+                    style: style
+                };
+
+                console.log(`  - Added replacement for ${label}`);
             });
 
+            console.log('Final replacements:', replacements);
+            console.log('Replacement count:', Object.keys(replacements).length);
+
             if (Object.keys(replacements).length === 0) {
-                alert('Please enter at least one replacement value');
+                alert('Please enter at least one replacement value.\n\nDebug: Found ' + fields.length + ' fields, fieldsSource has ' + (fieldsSource ? fieldsSource.length : 0) + ' placeholders.');
                 return;
             }
 
             const outputFilename = document.getElementById('outputFilename').value.trim() || 'generated.pdf';
 
             log('Generating document...');
+            console.log('Replacements:', JSON.stringify(replacements, null, 2));
 
             try {
                 const response = await fetch(`${API_BASE}/template/${currentTemplateId}/generate`, {

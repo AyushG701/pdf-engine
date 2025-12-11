@@ -64,11 +64,23 @@ class Placeholder(Base):
     detection_source = Column(String(50), nullable=True)  # "Form Field", "Precise Layout", etc.
 
     # Line layout data for precise text positioning (stored as JSON)
-    # Format: [{"text": "line text", "baseline": 215.5, "size": 12}, ...]
+    # Format: [{"text": "line text", "baseline": 215.5, "y0": 210, "y1": 222, "size": 12}, ...]
     lines_data = Column(JSON, nullable=True)
 
     # Options
     strict_match = Column(Integer, default=1)  # 1 = match original layout, 0 = auto-distribute
+
+    # Content type: "text" or "image"
+    content_type = Column(String(20), default="text")
+
+    # Whether this placeholder supports multiple lines
+    multi_line = Column(Integer, default=0)  # 0 = single line, 1 = multi-line
+
+    # Default styling options (stored as JSON)
+    # Format: {"font_size": 12, "font_name": "helv", "font_weight": "normal",
+    #          "color": "#000000", "opacity": 1.0, "background_color": "#FFFFFF",
+    #          "background_opacity": 1.0, "background_width": null, "background_height": null, "padding": 1}
+    style = Column(JSON, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
