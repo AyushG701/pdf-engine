@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Editor API Test</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+
+        .container { display: flex; height: 100vh; }
+
+        /* Sidebar */
+        .sidebar { width: 380px; background: #16213e; padding: 15px; overflow-y: auto; border-right: 1px solid #0f3460; }
+        .sidebar h2 { color: #e94560; margin-bottom: 15px; font-size: 1.3em; display: flex; align-items: center; gap: 10px; }
+        .sidebar h3 { color: #0f3460; background: #e94560; padding: 8px 12px; margin: 12px -15px; font-size: 0.85em; }
+
+        /* Collapsible sections */
+        .section { margin-bottom: 10px; }
+        .section-header {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #0f3460;
+            margin: 0 -15px;
+            user-select: none;
+        }
+        .section-header:hover { background: #1a4a7a; }
+        .section-header .toggle { transition: transform 0.2s; }
+        .section-header.collapsed .toggle { transform: rotate(-90deg); }
+        .section-content { padding: 10px 0; }
+        .section-content.hidden { display: none; }
+
+        /* Form elements */
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 4px; color: #aaa; font-size: 0.8em; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 8px; border: 1px solid #0f3460; border-radius: 4px;
+            background: #1a1a2e; color: #eee; font-size: 0.85em;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none; border-color: #e94560;
+        }
+        .form-group input:disabled, .form-group select:disabled {
+            opacity: 0.5; cursor: not-allowed;
+        }
+
+        button {
+            padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 0.85em; transition: all 0.2s; margin: 3px 3px 3px 0;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: #e94560; color: white; }
+        .btn-primary:hover:not(:disabled) { background: #ff6b6b; }
+        .btn-secondary { background: #0f3460; color: white; }
+        .btn-secondary:hover:not(:disabled) { background: #1a4a7a; }
+        .btn-success { background: #00b894; color: white; }
+        .btn-success:hover:not(:disabled) { background: #00d9a5; }
+        .btn-warning { background: #fdcb6e; color: #333; }
+        .btn-danger { background: #d63031; color: white; }
+        .btn-small { padding: 4px 8px; font-size: 0.75em; }
+
+        /* Main viewer */
+        .viewer { flex: 1; display: flex; flex-direction: column; background: #0f0f23; }
+
+        .toolbar {
+            background: #16213e; padding: 8px 15px; display: flex; align-items: center;
+            gap: 12px; border-bottom: 1px solid #0f3460; flex-wrap: wrap;
+        }
+        .toolbar span { color: #aaa; font-size: 0.9em; }
+        .toolbar .page-info { background: #1a1a2e; padding: 4px 12px; border-radius: 4px; }
+        .toolbar-group { display: flex; align-items: center; gap: 8px; }
+
+        .canvas-container {
+            flex: 1; overflow: auto; position: relative;
+            display: flex; justify-content: center; padding: 15px;
+        }
+        #pdfCanvas {
+            background: #333; cursor: default; box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+        }
+        #pdfCanvas.selection-mode { cursor: crosshair; }
+
+        /* Selection overlay */
+        .selection-box {
+            position: absolute; border: 2px dashed #e94560; background: rgba(233, 69, 96, 0.15);
+            pointer-events: none;
+        }
+
+        /* Placeholder markers */
+        .placeholder-marker {
+            position: absolute; border: 2px solid #00b894; background: rgba(0, 184, 148, 0.15);
+            pointer-events: none; font-size: 9px; color: #00b894; padding: 2px; overflow: hidden;
+        }
+        .placeholder-marker.template-marker {
+            border-color: #74b9ff; background: rgba(116, 185, 255, 0.15); color: #74b9ff;
+        }
+
+        /* Log panel */
+        .log-panel {
+            height: 120px; background: #0a0a15; border-top: 1px solid #0f3460;
+            padding: 8px; overflow-y: auto; font-family: monospace; font-size: 0.75em;
+        }
+        .log-panel .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a2e; }
+        .log-panel .log-info { color: #74b9ff; }
+        .log-panel .log-success { color: #00b894; }
+        .log-panel .log-error { color: #e94560; }
+        .log-panel .log-warn { color: #fdcb6e; }
+
+        /* Lists */
+        .list-item {
+            background: #1a1a2e; padding: 8px; margin: 4px 0; border-radius: 4px;
+            border-left: 3px solid #0f3460; cursor: pointer; font-size: 0.85em;
+        }
+        .list-item:hover { border-left-color: #e94560; background: #252547; }
+        .list-item.selected { border-left-color: #00b894; background: #0f3460; }
+        .list-item .item-title { font-weight: bold; color: #eee; }
+        .list-item .item-meta { font-size: 0.8em; color: #888; margin-top: 3px; }
+        .list-item .item-actions { margin-top: 5px; }
+
+        /* Modal */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: #16213e; padding: 25px; border-radius: 8px; width: 500px; max-width: 95%;
+            max-height: 85vh; overflow-y: auto;
+        }
+        .modal-content h3 { margin-bottom: 15px; color: #e94560; }
+        .modal-close { float: right; cursor: pointer; font-size: 1.4em; color: #888; }
+        .modal-close:hover { color: #e94560; }
+
+        /* Status indicator */
+        .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+        .status.online { background: #00b894; }
+        .status.offline { background: #d63031; }
+
+        /* Hidden file input */
+        #fileInput { display: none; }
+
+        /* Info box */
+        .info-box {
+            background: #0f3460; padding: 10px; border-radius: 4px;
+            margin-bottom: 12px; font-size: 0.8em; line-height: 1.4;
+        }
+        .info-box.warning { background: #614a00; border-left: 3px solid #fdcb6e; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 2px; margin-bottom: 10px; }
+        .tab {
+            padding: 8px 16px; background: #0f3460; cursor: pointer;
+            border-radius: 4px 4px 0 0; font-size: 0.85em;
+        }
+        .tab:hover { background: #1a4a7a; }
+        .tab.active { background: #e94560; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Loading spinner */
+        .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff;
+            border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Placeholder list item with delete */
+        .placeholder-item { display: flex; justify-content: space-between; align-items: flex-start; }
+        .placeholder-item .delete-btn { color: #e94560; cursor: pointer; font-size: 1.1em; padding: 0 5px; }
+        .placeholder-item .delete-btn:hover { color: #ff6b6b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h2><span class="status" id="serverStatus"></span> PDF Editor</h2>
+
+            <!-- Section 1: PDF Management -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span>1. PDF Management</span>
+                    <span class="toggle">&#9660;</span>
+                </div>
+                <div class="section-content">
+                    <input type="file" id="fileInput" accept=".pdf">
+                    <button class="btn-primary" onclick="document.getElementById('fileInput').click()">Upload PDF</button>
+                    <button class="btn-secondary" onclick="listPDFs()">Refresh</button>
+                    <div id="pdfList" style="margin-top: 8px; max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </div>
+
+            <!-- Section 2: Selection Mode -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span>2. Define Placeholders</span>
+                    <span class="toggle">&#9660;</span>
+                </div>
+                <div class="section-content">
+                    <div class="info-box">
+                        <strong>Mode 1 (Immediate):</strong> Draw box, detect text immediately, add with label.<br>
+                        <strong>Mode 2 (Batch):</strong> Draw multiple boxes with labels first, then detect all at once.
+                    </div>
+
+                    <div class="form-group">
+                        <label>Detection Mode:</label>
+                        <select id="detectionMode">
+                            <option value="immediate">Immediate (detect on draw)</option>
+                            <option value="batch">Batch (detect later)</option>
+                        </select>
+                    </div>
+
+                    <button class="btn-warning" id="selectionBtn" onclick="toggleSelection()">Enable Selection Mode</button>
+
+                    <div id="batchLabelInput" class="form-group" style="margin-top: 10px; display: none;">
+                        <label>Label for next selection:</label>
+                        <input type="text" id="nextPlaceholderLabel" placeholder="e.g., customer_name">
+                    </div>
+
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label>Current Placeholders:</label>
+                    </div>
+                    <div id="placeholderList" style="max-height: 180px; overflow-y: auto;"></div>
+
+                    <div style="margin-top: 8px;">
+                        <button class="btn-success btn-small" onclick="detectAllPlaceholders()" id="detectAllBtn" style="display: none;">Detect All Text</button>
+                        <button class="btn-danger btn-small" onclick="clearPlaceholders()">Clear All</button>
+                        <button class="btn-secondary btn-small" onclick="debugPageText()">Debug Page</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: Templates -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span>3. Templates</span>
+                    <span class="toggle">&#9660;</span>
+                </div>
+                <div class="section-content">
+                    <div class="tabs">
+                        <div class="tab active" onclick="switchTab(this, 'tab-create')">Create</div>
+                        <div class="tab" onclick="switchTab(this, 'tab-load')">Load</div>
+                    </div>
+
+                    <div id="tab-create" class="tab-content active">
+                        <div class="form-group">
+                            <label>Template Name:</label>
+                            <input type="text" id="templateName" placeholder="My Template">
+                        </div>
+                        <button class="btn-success" onclick="createTemplate()">Create Template</button>
+                    </div>
+
+                    <div id="tab-load" class="tab-content">
+                        <button class="btn-secondary" onclick="listTemplates()" style="margin-bottom: 8px;">Refresh List</button>
+                        <div id="templateList" style="max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 4: Generate/Apply -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span>4. Generate Document</span>
+                    <span class="toggle">&#9660;</span>
+                </div>
+                <div class="section-content">
+                    <div class="tabs">
+                        <div class="tab active" onclick="switchTab(this, 'tab-generate')">Generate</div>
+                        <div class="tab" onclick="switchTab(this, 'tab-apply')">Apply to New PDF</div>
+                    </div>
+
+                    <div id="tab-generate" class="tab-content active">
+                        <div id="selectedTemplateInfo" class="info-box" style="display: none;"></div>
+                        <div id="replacementFields"></div>
+                        <div class="form-group">
+                            <label>Output Filename:</label>
+                            <input type="text" id="outputFilename" placeholder="output.pdf">
+                        </div>
+                        <button class="btn-primary" onclick="generateDocument()">Generate PDF</button>
+                    </div>
+
+                    <div id="tab-apply" class="tab-content">
+                        <div class="info-box warning">
+                            Apply template placeholders to a different PDF with the same structure.
+                        </div>
+                        <div class="form-group">
+                            <label>Target PDF:</label>
+                            <select id="targetPdfSelect">
+                                <option value="">-- Select a PDF --</option>
+                            </select>
+                        </div>
+                        <button class="btn-secondary" onclick="detectAtTemplatePositions()" style="margin-bottom: 8px;">Detect Text First</button>
+                        <div id="applyReplacementFields"></div>
+                        <div class="form-group">
+                            <label>Output Filename:</label>
+                            <input type="text" id="applyOutputFilename" placeholder="applied_output.pdf">
+                        </div>
+                        <button class="btn-primary" onclick="applyTemplateToDocument()">Apply Template</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Viewer -->
+        <div class="viewer">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <button class="btn-secondary btn-small" onclick="prevPage()">&lt; Prev</button>
+                    <span class="page-info" id="pageInfo">No PDF</span>
+                    <button class="btn-secondary btn-small" onclick="nextPage()">Next &gt;</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="btn-secondary btn-small" onclick="changeZoom(-0.25)">-</button>
+                    <span id="zoomLevel">150%</span>
+                    <button class="btn-secondary btn-small" onclick="changeZoom(0.25)">+</button>
+                </div>
+                <div class="toolbar-group">
+                    <span id="coordsDisplay">X: 0, Y: 0</span>
+                </div>
+                <div class="toolbar-group" style="margin-left: auto;">
+                    <span id="selectionStatus" style="color: #888;">Selection: OFF</span>
+                </div>
+            </div>
+
+            <div class="canvas-container" id="canvasContainer">
+                <canvas id="pdfCanvas"></canvas>
+            </div>
+
+            <div class="log-panel" id="logPanel">
+                <div class="log-entry log-info">Ready. Upload a PDF to begin.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detection Result Modal -->
+    <div class="modal" id="detectionModal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('detectionModal')">&times;</span>
+            <h3>Text Detected</h3>
+            <div class="form-group">
+                <label>Detection Method:</label>
+                <input type="text" id="detectionSource" readonly>
+            </div>
+            <div class="form-group">
+                <label>Detected Text:</label>
+                <textarea id="detectedText" rows="4" readonly></textarea>
+            </div>
+            <div class="form-group">
+                <label>Placeholder Label (required):</label>
+                <input type="text" id="modalPlaceholderLabel" placeholder="e.g., customer_name, invoice_date">
+            </div>
+            <button class="btn-success" onclick="confirmPlaceholder()">Add Placeholder</button>
+            <button class="btn-secondary" onclick="closeModal('detectionModal')">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        // =============================================
+        // Configuration
+        // =============================================
+        const API_BASE = 'http://localhost:8000/api';
+
+        // =============================================
+        // State
+        // =============================================
+        let currentPdfId = null;
+        let currentPage = 0;
+        let totalPages = 0;
+        let zoom = 1.5;
+        let selectionMode = false;
+        let isDrawing = false;
+        let startX = 0, startY = 0;
+        let currentSelection = null;
+        let placeholders = [];
+        let currentTemplateId = null;
+        let currentTemplate = null;
+        let detectionResult = null;
+        let allPdfs = [];
+
+        // =============================================
+        // Initialization
+        // =============================================
+        document.addEventListener('DOMContentLoaded', () => {
+            checkServerStatus();
+            setupCanvas();
+            setupFileInput();
+            setupDetectionModeToggle();
+            listPDFs();
+            listTemplates();
+            setInterval(checkServerStatus, 30000);
+        });
+
+        function setupDetectionModeToggle() {
+            const modeSelect = document.getElementById('detectionMode');
+            if (modeSelect) {
+                modeSelect.addEventListener('change', function() {
+                    const mode = this.value;
+                    document.getElementById('batchLabelInput').style.display = mode === 'batch' ? 'block' : 'none';
+                    document.getElementById('detectAllBtn').style.display = mode === 'batch' ? 'inline-block' : 'none';
+                    log(`Detection mode: ${mode}`, 'info');
+                });
+            }
+        }
+
+        function setupCanvas() {
+            const canvas = document.getElementById('pdfCanvas');
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('mouseleave', onMouseUp);
+        }
+
+        function setupFileInput() {
+            document.getElementById('fileInput').addEventListener('change', uploadPDF);
+        }
+
+        // =============================================
+        // UI Helpers
+        // =============================================
+        function toggleSection(header) {
+            header.classList.toggle('collapsed');
+            const content = header.nextElementSibling;
+            content.classList.toggle('hidden');
+        }
+
+        function switchTab(tabEl, contentId) {
+            const parent = tabEl.parentElement;
+            parent.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tabEl.classList.add('active');
+
+            const section = parent.parentElement;
+            section.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(contentId).classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        // =============================================
+        // Logging
+        // =============================================
+        function log(message, type = 'info') {
+            const panel = document.getElementById('logPanel');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            panel.insertBefore(entry, panel.firstChild);
+            while (panel.children.length > 100) {
+                panel.removeChild(panel.lastChild);
+            }
+        }
+
+        // =============================================
+        // Server Status
+        // =============================================
+        async function checkServerStatus() {
+            const status = document.getElementById('serverStatus');
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                if (response.ok) {
+                    status.className = 'status online';
+                } else {
+                    status.className = 'status offline';
+                    log('Server returned error', 'error');
+                }
+            } catch (e) {
+                status.className = 'status offline';
+                log('Cannot connect to server at localhost:8000', 'error');
+            }
+        }
+
+        // =============================================
+        // PDF Operations
+        // =============================================
+        async function uploadPDF(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            log(`Uploading: ${file.name}...`);
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(`${API_BASE}/pdf/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Upload failed');
+                }
+
+                const data = await response.json();
+                log(`Uploaded: ${data.original_filename} (${data.page_count} pages)`, 'success');
+                currentPdfId = data.id;
+                currentPage = 0;
+                totalPages = data.page_count;
+                placeholders = [];
+                renderPlaceholders();
+                loadPage();
+                listPDFs();
+            } catch (e) {
+                log(`Upload error: ${e.message}`, 'error');
+            }
+            event.target.value = '';
+        }
+
+        async function listPDFs() {
+            try {
+                const response = await fetch(`${API_BASE}/pdf/list`);
+                const pdfs = await response.json();
+                allPdfs = pdfs;
+
+                const container = document.getElementById('pdfList');
+                container.innerHTML = pdfs.map(pdf => `
+                    <div class="list-item ${pdf.id === currentPdfId ? 'selected' : ''}"
+                         onclick="selectPDF('${pdf.id}', ${pdf.page_count})">
+                        <div class="item-title">${pdf.original_filename}</div>
+                        <div class="item-meta">${pdf.page_count} pages | ${(pdf.file_size/1024).toFixed(1)} KB</div>
+                    </div>
+                `).join('') || '<div style="color: #888; font-size: 0.85em;">No PDFs uploaded</div>';
+
+                // Update target PDF dropdown
+                const targetSelect = document.getElementById('targetPdfSelect');
+                targetSelect.innerHTML = '<option value="">-- Select a PDF --</option>' +
+                    pdfs.map(pdf => `<option value="${pdf.id}">${pdf.original_filename}</option>`).join('');
+
+            } catch (e) {
+                log(`Error listing PDFs: ${e.message}`, 'error');
+            }
+        }
+
+        function selectPDF(id, pages) {
+            currentPdfId = id;
+            currentPage = 0;
+            totalPages = pages;
+            placeholders = [];
+            renderPlaceholders();
+            loadPage();
+            listPDFs();
+            log(`Selected PDF: ${id.substring(0, 8)}...`);
+        }
+
+        async function loadPage() {
+            if (!currentPdfId) return;
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/pdf/${currentPdfId}/page/${currentPage}?zoom=${zoom}&format=base64`
+                );
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to load page');
+                }
+
+                const data = await response.json();
+                const canvas = document.getElementById('pdfCanvas');
+                const ctx = canvas.getContext('2d');
+
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = data.width;
+                    canvas.height = data.height;
+                    ctx.drawImage(img, 0, 0);
+                    drawPlaceholderMarkers();
+                };
+                img.src = 'data:image/png;base64,' + data.image_base64;
+
+                document.getElementById('pageInfo').textContent = `${currentPage + 1} / ${data.total_pages}`;
+                totalPages = data.total_pages;
+
+            } catch (e) {
+                log(`Error loading page: ${e.message}`, 'error');
+            }
+        }
+
+        function prevPage() {
+            if (currentPage > 0) { currentPage--; loadPage(); }
+        }
+
+        function nextPage() {
+            if (currentPage < totalPages - 1) { currentPage++; loadPage(); }
+        }
+
+        function changeZoom(delta) {
+            zoom = Math.max(0.5, Math.min(4, zoom + delta));
+            document.getElementById('zoomLevel').textContent = `${Math.round(zoom * 100)}%`;
+            if (currentPdfId) loadPage();
+        }
+
+        // =============================================
+        // Selection & Detection
+        // =============================================
+        let pageWidth = 0;  // PDF page width (in points)
+        let pageHeight = 0; // PDF page height (in points)
+        let canvasWidth = 0;
+        let canvasHeight = 0;
+
+        function toggleSelection() {
+            selectionMode = !selectionMode;
+            const btn = document.getElementById('selectionBtn');
+            const canvas = document.getElementById('pdfCanvas');
+            const statusEl = document.getElementById('selectionStatus');
+
+            if (selectionMode) {
+                btn.textContent = 'Disable Selection Mode';
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-danger');
+                canvas.classList.add('selection-mode');
+                statusEl.textContent = 'Selection: ON';
+                statusEl.style.color = '#00b894';
+                log('Selection mode ON - draw boxes to define placeholders', 'info');
+            } else {
+                btn.textContent = 'Enable Selection Mode';
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-warning');
+                canvas.classList.remove('selection-mode');
+                statusEl.textContent = 'Selection: OFF';
+                statusEl.style.color = '#888';
+                clearSelectionBox();
+            }
+        }
+
+        function onMouseDown(e) {
+            if (!selectionMode || !currentPdfId) return;
+            const canvas = document.getElementById('pdfCanvas');
+            const rect = canvas.getBoundingClientRect();
+
+            // Convert CSS pixels to canvas intrinsic pixels
+            // This accounts for any CSS scaling or browser zoom
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            startX = (e.clientX - rect.left) * scaleX;
+            startY = (e.clientY - rect.top) * scaleY;
+            isDrawing = true;
+            clearSelectionBox();
+        }
+
+        function onMouseMove(e) {
+            const canvas = document.getElementById('pdfCanvas');
+            const rect = canvas.getBoundingClientRect();
+
+            // Convert CSS pixels to canvas intrinsic pixels
+            // This accounts for any CSS scaling or browser zoom
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            // CSS position relative to canvas
+            const cssX = e.clientX - rect.left;
+            const cssY = e.clientY - rect.top;
+
+            // Canvas pixel coordinates (intrinsic)
+            const x = cssX * scaleX;
+            const y = cssY * scaleY;
+
+            // Convert to PDF coordinates (divide by zoom to get points)
+            const pdfX = (x / zoom).toFixed(1);
+            const pdfY = (y / zoom).toFixed(1);
+            document.getElementById('coordsDisplay').textContent = `PDF: (${pdfX}, ${pdfY}) | Canvas: (${x.toFixed(0)}, ${y.toFixed(0)}) | Scale: ${scaleX.toFixed(2)}`;
+
+            if (!isDrawing) return;
+
+            const container = document.getElementById('canvasContainer');
+            let box = document.getElementById('selectionBox');
+
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'selectionBox';
+                box.className = 'selection-box';
+                container.appendChild(box);
+            }
+
+            const canvasRect = canvas.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+
+            // For visual box, use CSS coordinates (what user sees)
+            const left = Math.min(startX / scaleX, cssX) + canvasRect.left - containerRect.left + container.scrollLeft;
+            const top = Math.min(startY / scaleY, cssY) + canvasRect.top - containerRect.top + container.scrollTop;
+            const width = Math.abs(cssX - startX / scaleX);
+            const height = Math.abs(cssY - startY / scaleY);
+
+            box.style.left = left + 'px';
+            box.style.top = top + 'px';
+            box.style.width = width + 'px';
+            box.style.height = height + 'px';
+
+            // Store PDF coordinates (canvas intrinsic pixels divided by zoom gives PDF points)
+            currentSelection = {
+                x0: Math.min(startX, x) / zoom,
+                y0: Math.min(startY, y) / zoom,
+                x1: Math.max(startX, x) / zoom,
+                y1: Math.max(startY, y) / zoom
+            };
+        }
+
+        function onMouseUp(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            if (currentSelection &&
+                (currentSelection.x1 - currentSelection.x0) > 5 &&
+                (currentSelection.y1 - currentSelection.y0) > 5) {
+                // Log the selection coordinates for debugging
+                log(`Selection: (${currentSelection.x0.toFixed(1)}, ${currentSelection.y0.toFixed(1)}) to (${currentSelection.x1.toFixed(1)}, ${currentSelection.y1.toFixed(1)})`);
+
+                const mode = document.getElementById('detectionMode').value;
+                if (mode === 'batch') {
+                    // Batch mode: add placeholder without detection
+                    addBatchPlaceholder();
+                } else {
+                    // Immediate mode: detect text first
+                    detectText();
+                }
+            } else {
+                clearSelectionBox();
+            }
+        }
+
+        function addBatchPlaceholder() {
+            const label = document.getElementById('nextPlaceholderLabel').value.trim();
+            if (!label) {
+                alert('Please enter a label for this placeholder first');
+                return;
+            }
+
+            if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(label)) {
+                alert('Label must start with a letter or underscore and contain only letters, numbers, and underscores');
+                return;
+            }
+
+            if (placeholders.find(p => p.label === label)) {
+                alert('A placeholder with this label already exists');
+                return;
+            }
+
+            placeholders.push({
+                label: label,
+                page: currentPage,
+                rect: [currentSelection.x0, currentSelection.y0, currentSelection.x1, currentSelection.y1],
+                detected_text: null,  // Will be detected later
+                detection_source: null,
+                lines_data: null,
+                pending_detection: true
+            });
+
+            log(`Added placeholder: ${label} (pending detection)`, 'info');
+            document.getElementById('nextPlaceholderLabel').value = '';
+            clearSelectionBox();
+            renderPlaceholders();
+            drawPlaceholderMarkers();
+        }
+
+        async function detectAllPlaceholders() {
+            const pendingPlaceholders = placeholders.filter(p => p.pending_detection);
+            if (pendingPlaceholders.length === 0) {
+                alert('No pending placeholders to detect');
+                return;
+            }
+
+            log(`Detecting text for ${pendingPlaceholders.length} placeholders...`);
+
+            for (const p of pendingPlaceholders) {
+                try {
+                    const response = await fetch(`${API_BASE}/pdf/${currentPdfId}/detect-text`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            page: p.page,
+                            x0: p.rect[0],
+                            y0: p.rect[1],
+                            x1: p.rect[2],
+                            y1: p.rect[3]
+                        })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        p.detected_text = result.detected_text;
+                        p.detection_source = result.detection_source;
+                        p.lines_data = result.lines_data;
+                        p.pending_detection = false;
+                        log(`${p.label}: "${(result.detected_text || '').substring(0, 30)}..." (${result.detection_source})`, 'success');
+                    } else {
+                        const error = await response.json();
+                        log(`${p.label}: Detection failed - ${error.detail}`, 'error');
+                    }
+                } catch (e) {
+                    log(`${p.label}: Error - ${e.message}`, 'error');
+                }
+            }
+
+            renderPlaceholders();
+            updateReplacementFields();
+            log('Detection complete', 'success');
+        }
+
+        async function debugPageText() {
+            if (!currentPdfId) {
+                alert('Please select a PDF first');
+                return;
+            }
+
+            log('Fetching page debug info...');
+
+            try {
+                const response = await fetch(`${API_BASE}/pdf/${currentPdfId}/debug-text/${currentPage}`);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Debug failed');
+                }
+
+                const data = await response.json();
+
+                console.log('Page Debug Info:', data);
+
+                // Get canvas info for comparison
+                const canvas = document.getElementById('pdfCanvas');
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+
+                log(`PDF Page: ${data.page_info.width.toFixed(1)} x ${data.page_info.height.toFixed(1)} points`, 'info');
+                log(`Canvas: ${canvas.width} x ${canvas.height} pixels (at zoom ${zoom})`, 'info');
+                log(`Display: ${rect.width.toFixed(1)} x ${rect.height.toFixed(1)} CSS pixels (scale: ${scaleX.toFixed(3)})`, 'info');
+                log(`Total words: ${data.total_words}, blocks: ${data.total_blocks}, widgets: ${data.total_widgets}`, 'info');
+
+                // Log some sample words
+                if (data.sample_words.length > 0) {
+                    const firstWord = data.sample_words[0];
+                    log(`First word: "${firstWord.text}" at PDF (${firstWord.x0}, ${firstWord.y0})`, 'info');
+                }
+
+                // Show alert with summary
+                alert(`Page Info:
+- PDF Dimensions: ${data.page_info.width.toFixed(1)} x ${data.page_info.height.toFixed(1)} points
+- Canvas Pixels: ${canvas.width} x ${canvas.height} (zoom: ${zoom})
+- CSS Display: ${rect.width.toFixed(1)} x ${rect.height.toFixed(1)} pixels
+- Scale Factor: ${scaleX.toFixed(3)} (should be 1.0 for accurate selection)
+- Total words: ${data.total_words}
+- Total blocks: ${data.total_blocks}
+- Total widgets: ${data.total_widgets}
+
+Check browser console for full details (press F12).`);
+
+            } catch (e) {
+                log(`Debug error: ${e.message}`, 'error');
+            }
+        }
+
+        function clearSelectionBox() {
+            const box = document.getElementById('selectionBox');
+            if (box) box.remove();
+            currentSelection = null;
+        }
+
+        async function detectText() {
+            if (!currentSelection || !currentPdfId) return;
+
+            // Log the exact coordinates being sent for debugging
+            log(`Detecting text at PDF coords: (${currentSelection.x0.toFixed(1)}, ${currentSelection.y0.toFixed(1)}) to (${currentSelection.x1.toFixed(1)}, ${currentSelection.y1.toFixed(1)})`);
+
+            try {
+                const requestBody = {
+                    page: currentPage,
+                    x0: currentSelection.x0,
+                    y0: currentSelection.y0,
+                    x1: currentSelection.x1,
+                    y1: currentSelection.y1
+                };
+                console.log('Detection request:', requestBody);
+
+                const response = await fetch(`${API_BASE}/pdf/${currentPdfId}/detect-text`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Detection failed');
+                }
+
+                detectionResult = await response.json();
+
+                document.getElementById('detectionSource').value = detectionResult.detection_source;
+                document.getElementById('detectedText').value = detectionResult.detected_text || '(No text found)';
+                document.getElementById('modalPlaceholderLabel').value = '';
+                document.getElementById('detectionModal').classList.add('active');
+
+                const preview = (detectionResult.detected_text || '').substring(0, 40);
+                log(`Detected (${detectionResult.detection_source}): "${preview}..."`, 'success');
+
+            } catch (e) {
+                log(`Detection error: ${e.message}`, 'error');
+                clearSelectionBox();
+            }
+        }
+
+        function confirmPlaceholder() {
+            const label = document.getElementById('modalPlaceholderLabel').value.trim();
+            if (!label) {
+                alert('Please enter a placeholder label');
+                return;
+            }
+
+            if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(label)) {
+                alert('Label must start with a letter or underscore and contain only letters, numbers, and underscores');
+                return;
+            }
+
+            if (placeholders.find(p => p.label === label)) {
+                alert('A placeholder with this label already exists');
+                return;
+            }
+
+            placeholders.push({
+                label: label,
+                page: currentPage,
+                rect: [currentSelection.x0, currentSelection.y0, currentSelection.x1, currentSelection.y1],
+                detected_text: detectionResult.detected_text,
+                detection_source: detectionResult.detection_source,
+                lines_data: detectionResult.lines_data
+            });
+
+            log(`Added placeholder: ${label}`, 'success');
+            closeModal('detectionModal');
+            clearSelectionBox();
+            renderPlaceholders();
+            drawPlaceholderMarkers();
+            updateReplacementFields();
+        }
+
+        function renderPlaceholders() {
+            const container = document.getElementById('placeholderList');
+            if (placeholders.length === 0) {
+                container.innerHTML = '<div style="color: #888; font-size: 0.85em;">No placeholders defined</div>';
+                return;
+            }
+            container.innerHTML = placeholders.map((p, i) => `
+                <div class="list-item placeholder-item" style="${p.pending_detection ? 'border-left-color: #fdcb6e;' : ''}">
+                    <div>
+                        <div class="item-title">${p.label} ${p.pending_detection ? '<span style="color: #fdcb6e; font-size: 0.7em;">(pending)</span>' : ''}</div>
+                        <div class="item-meta">Page ${p.page + 1} | ${p.detected_text ? '"' + p.detected_text.substring(0, 25) + '..."' : '(not detected yet)'}</div>
+                    </div>
+                    <span class="delete-btn" onclick="removePlaceholder(${i})">&times;</span>
+                </div>
+            `).join('');
+        }
+
+        function removePlaceholder(index) {
+            placeholders.splice(index, 1);
+            renderPlaceholders();
+            drawPlaceholderMarkers();
+            updateReplacementFields();
+            log('Placeholder removed');
+        }
+
+        function drawPlaceholderMarkers() {
+            document.querySelectorAll('.placeholder-marker').forEach(m => m.remove());
+
+            const canvas = document.getElementById('pdfCanvas');
+            const container = document.getElementById('canvasContainer');
+            const canvasRect = canvas.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+
+            // Calculate scale between canvas intrinsic size and displayed size
+            // This is needed when browser zoom or CSS scaling affects the canvas
+            const scaleX = canvasRect.width / canvas.width;
+            const scaleY = canvasRect.height / canvas.height;
+
+            // Draw current placeholders (green)
+            placeholders.filter(p => p.page === currentPage).forEach(p => {
+                const marker = document.createElement('div');
+                marker.className = 'placeholder-marker';
+
+                // Convert PDF coordinates to canvas pixels, then to CSS pixels
+                const left = (p.rect[0] * zoom * scaleX) + canvasRect.left - containerRect.left + container.scrollLeft;
+                const top = (p.rect[1] * zoom * scaleY) + canvasRect.top - containerRect.top + container.scrollTop;
+                const width = (p.rect[2] - p.rect[0]) * zoom * scaleX;
+                const height = (p.rect[3] - p.rect[1]) * zoom * scaleY;
+
+                marker.style.left = left + 'px';
+                marker.style.top = top + 'px';
+                marker.style.width = width + 'px';
+                marker.style.height = height + 'px';
+                marker.textContent = p.label;
+
+                container.appendChild(marker);
+            });
+
+            // Draw template placeholders (blue) if a template is loaded
+            if (currentTemplate && currentTemplate.placeholders) {
+                currentTemplate.placeholders.filter(p => p.page === currentPage).forEach(p => {
+                    const marker = document.createElement('div');
+                    marker.className = 'placeholder-marker template-marker';
+
+                    // Convert PDF coordinates to canvas pixels, then to CSS pixels
+                    const left = (p.rect[0] * zoom * scaleX) + canvasRect.left - containerRect.left + container.scrollLeft;
+                    const top = (p.rect[1] * zoom * scaleY) + canvasRect.top - containerRect.top + container.scrollTop;
+                    const width = (p.rect[2] - p.rect[0]) * zoom * scaleX;
+                    const height = (p.rect[3] - p.rect[1]) * zoom * scaleY;
+
+                    marker.style.left = left + 'px';
+                    marker.style.top = top + 'px';
+                    marker.style.width = width + 'px';
+                    marker.style.height = height + 'px';
+                    marker.textContent = p.label;
+
+                    container.appendChild(marker);
+                });
+            }
+        }
+
+        function clearPlaceholders() {
+            placeholders = [];
+            renderPlaceholders();
+            drawPlaceholderMarkers();
+            updateReplacementFields();
+            log('All placeholders cleared');
+        }
+
+        // =============================================
+        // Template Operations
+        // =============================================
+        async function createTemplate() {
+            if (!currentPdfId) {
+                alert('Please select a PDF first');
+                return;
+            }
+
+            if (placeholders.length === 0) {
+                alert('Please add at least one placeholder');
+                return;
+            }
+
+            const name = document.getElementById('templateName').value.trim() || 'Untitled Template';
+
+            log('Creating template...');
+
+            try {
+                const response = await fetch(`${API_BASE}/template/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pdf_id: currentPdfId,
+                        name: name,
+                        placeholders: placeholders
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create template');
+                }
+
+                const data = await response.json();
+                currentTemplateId = data.id;
+                currentTemplate = data;
+                log(`Template created: ${name}`, 'success');
+                listTemplates();
+                updateReplacementFields();
+
+            } catch (e) {
+                log(`Error creating template: ${e.message}`, 'error');
+            }
+        }
+
+        async function listTemplates() {
+            try {
+                const response = await fetch(`${API_BASE}/template/list`);
+                const templates = await response.json();
+
+                const container = document.getElementById('templateList');
+                container.innerHTML = templates.map(t => `
+                    <div class="list-item ${t.id === currentTemplateId ? 'selected' : ''}"
+                         onclick="selectTemplate('${t.id}')">
+                        <div class="item-title">${t.name}</div>
+                        <div class="item-meta">${t.placeholder_count} placeholders</div>
+                    </div>
+                `).join('') || '<div style="color: #888; font-size: 0.85em;">No templates created</div>';
+
+            } catch (e) {
+                log(`Error listing templates: ${e.message}`, 'error');
+            }
+        }
+
+        async function selectTemplate(id) {
+            currentTemplateId = id;
+            log(`Loading template...`);
+
+            try {
+                const response = await fetch(`${API_BASE}/template/${id}`);
+                if (!response.ok) throw new Error('Failed to load template');
+
+                currentTemplate = await response.json();
+
+                // Show template info
+                document.getElementById('selectedTemplateInfo').style.display = 'block';
+                document.getElementById('selectedTemplateInfo').innerHTML = `
+                    <strong>Selected:</strong> ${currentTemplate.name}<br>
+                    <small>${currentTemplate.placeholders.length} placeholders</small>
+                `;
+
+                // Update replacement fields
+                const container = document.getElementById('replacementFields');
+                container.innerHTML = currentTemplate.placeholders.map(p => `
+                    <div class="form-group">
+                        <label>${p.label}:</label>
+                        <input type="text" id="replace_${p.label}" placeholder="${p.detected_text || 'Enter value'}">
+                    </div>
+                `).join('');
+
+                // Update apply fields
+                const applyContainer = document.getElementById('applyReplacementFields');
+                applyContainer.innerHTML = currentTemplate.placeholders.map(p => `
+                    <div class="form-group">
+                        <label>${p.label}:</label>
+                        <input type="text" id="apply_${p.label}" placeholder="${p.detected_text || 'Enter value'}">
+                    </div>
+                `).join('');
+
+                listTemplates();
+                drawPlaceholderMarkers();
+                log(`Template loaded: ${currentTemplate.name}`, 'success');
+
+            } catch (e) {
+                log(`Error loading template: ${e.message}`, 'error');
+            }
+        }
+
+        function updateReplacementFields() {
+            const container = document.getElementById('replacementFields');
+            container.innerHTML = placeholders.map(p => `
+                <div class="form-group">
+                    <label>${p.label}:</label>
+                    <input type="text" id="replace_${p.label}" placeholder="${p.detected_text || 'Enter value'}">
+                </div>
+            `).join('');
+        }
+
+        // =============================================
+        // Document Generation
+        // =============================================
+        async function generateDocument() {
+            if (!currentTemplateId) {
+                alert('Please select or create a template first');
+                return;
+            }
+
+            const replacements = {};
+            document.querySelectorAll('[id^="replace_"]').forEach(input => {
+                const label = input.id.replace('replace_', '');
+                if (input.value.trim()) {
+                    replacements[label] = input.value.trim();
+                }
+            });
+
+            if (Object.keys(replacements).length === 0) {
+                alert('Please enter at least one replacement value');
+                return;
+            }
+
+            const outputFilename = document.getElementById('outputFilename').value.trim() || 'generated.pdf';
+
+            log('Generating document...');
+
+            try {
+                const response = await fetch(`${API_BASE}/template/${currentTemplateId}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        replacements: replacements,
+                        output_filename: outputFilename
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Generation failed');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = outputFilename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+                log(`Document generated: ${outputFilename}`, 'success');
+
+            } catch (e) {
+                log(`Error generating: ${e.message}`, 'error');
+            }
+        }
+
+        // =============================================
+        // Apply Template to Different Document
+        // =============================================
+        async function detectAtTemplatePositions() {
+            if (!currentTemplateId) {
+                alert('Please select a template first');
+                return;
+            }
+
+            const targetPdfId = document.getElementById('targetPdfSelect').value;
+            if (!targetPdfId) {
+                alert('Please select a target PDF');
+                return;
+            }
+
+            log('Detecting text at template positions...');
+
+            try {
+                const response = await fetch(`${API_BASE}/template/${currentTemplateId}/detect?target_pdf_id=${targetPdfId}`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Detection failed');
+                }
+
+                const data = await response.json();
+
+                // Fill in the detected values
+                for (const [label, value] of Object.entries(data.detected_values)) {
+                    const input = document.getElementById(`apply_${label}`);
+                    if (input) {
+                        input.placeholder = value || '(empty)';
+                    }
+                }
+
+                log(`Detected values for ${Object.keys(data.detected_values).length} placeholders`, 'success');
+
+            } catch (e) {
+                log(`Detection error: ${e.message}`, 'error');
+            }
+        }
+
+        async function applyTemplateToDocument() {
+            if (!currentTemplateId) {
+                alert('Please select a template first');
+                return;
+            }
+
+            const targetPdfId = document.getElementById('targetPdfSelect').value;
+            if (!targetPdfId) {
+                alert('Please select a target PDF');
+                return;
+            }
+
+            const replacements = {};
+            document.querySelectorAll('[id^="apply_"]').forEach(input => {
+                const label = input.id.replace('apply_', '');
+                if (input.value.trim()) {
+                    replacements[label] = input.value.trim();
+                }
+            });
+
+            if (Object.keys(replacements).length === 0) {
+                alert('Please enter at least one replacement value');
+                return;
+            }
+
+            const outputFilename = document.getElementById('applyOutputFilename').value.trim() || 'applied_output.pdf';
+
+            log('Applying template to document...');
+
+            try {
+                const response = await fetch(`${API_BASE}/template/${currentTemplateId}/apply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_pdf_id: targetPdfId,
+                        replacements: replacements,
+                        output_filename: outputFilename,
+                        detect_and_replace: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Apply failed');
+                }
+
+                const data = await response.json();
+
+                // Download the generated file
+                const downloadResponse = await fetch(`http://localhost:8000${data.download_url}`);
+                const blob = await downloadResponse.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = outputFilename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+                log(`Template applied: ${data.placeholders_replaced} replacements`, 'success');
+
+            } catch (e) {
+                log(`Error applying template: ${e.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
